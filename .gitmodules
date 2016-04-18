@@ -1,0 +1,3 @@
+[submodule "spgq"]
+	path = spgq
+	url = https://github.com/mc2soft/spgq.git
