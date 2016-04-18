@@ -1,4 +1,4 @@
-# spgq-go
+# spgq-go [![GoDoc](https://godoc.org/github.com/mc2soft/spgq-go?status.svg)](https://godoc.org/github.com/mc2soft/spgq-go)
 
 Client for [spgq](https://github.com/mc2soft/spgq).
 
