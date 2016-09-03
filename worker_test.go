@@ -1,7 +1,9 @@
 package spgq
 
 import (
+	"encoding/json"
 	"errors"
+	"reflect"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -43,16 +45,16 @@ func TestWorker(t *testing.T) {
 		Logger:      t.Logf,
 	}
 
-	err := w.Start()
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	for i := 1; i <= jobs; i++ {
 		_, err := w.Client.Put("test-queue", []byte(`{}`), nil)
 		if err != nil {
 			t.Fatal(err)
 		}
+	}
+
+	err := w.Start()
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	for atomic.LoadInt64(&total) != int64(jobs*(w.MaxReleases+1)) {
@@ -75,5 +77,69 @@ func TestWorker(t *testing.T) {
 		if j[1].Releases != 1 {
 			t.Errorf("expected 1 releases, got %d", j[1].Releases)
 		}
+	}
+}
+
+func TestNonPriorityJobs(t *testing.T) {
+	var cursor int64
+	results := make([]int, 11)
+	type data struct {
+		Num int
+	}
+
+	c := Client{Querier: DB, ID: "test-client"}
+	wf := func(job *Job) (reserveAfter *time.Time, err error) {
+		num := atomic.AddInt64(&cursor, 1) - 1
+		var d data
+		err = json.Unmarshal(job.Args, &d)
+		results[num] = d.Num
+		return nil, err
+	}
+	w := &Worker{
+		Client:   c,
+		Queue:    "test-queue",
+		WorkFunc: wf,
+		Logger:   t.Logf,
+		NonPriority: []JobQueue{
+			{Queue: `test-add-queue-1`, WorkFunc: wf},
+			{Queue: `test-add-queue-2`, WorkFunc: wf},
+		},
+	}
+
+	for i := 6; i <= 10; i++ {
+		payload, _ := json.Marshal(&data{Num: 2})
+		_, err := w.Client.Put("test-add-queue-2", payload, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	payload, _ := json.Marshal(&data{Num: 1})
+	_, err := w.Client.Put("test-add-queue-1", payload, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for i := 0; i <= 4; i++ {
+		payload, err := json.Marshal(&data{Num: 0})
+		_, err = w.Client.Put("test-queue", payload, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	err = w.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expectedResults := []int{0, 0, 0, 0, 0, 1, 2, 2, 2, 2, 2}
+
+	for atomic.LoadInt64(&cursor) != 11 {
+		time.Sleep(time.Millisecond)
+	}
+	w.Stop()
+	if !reflect.DeepEqual(results, expectedResults) {
+		t.Errorf("Wrong queue order. Got: %v; expect: %v", results, expectedResults)
 	}
 }
