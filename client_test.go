@@ -13,12 +13,6 @@ import (
 )
 
 var (
-	SchemaFile = flag.String("schema_path", "schema.sql", "Path to the sql file from spgq")
-	DBName     = flag.String("db-name", "spgq", "Database name")
-	DBAddr     = flag.String("db-addr", "127.0.0.1:5432", "Database host and port")
-	DBUser     = flag.String("db-user", "spgq", "Database user")
-	DBPass     = flag.String("db-pass", "spgq", "Database password")
-
 	DB *sql.DB
 )
 
@@ -26,8 +20,7 @@ func TestMain(m *testing.M) {
 	flag.Parse()
 
 	var err error
-	url := fmt.Sprintf("postgres://%s:%s@%s/%s?sslmode=disable&TimeZone=%s", *DBUser, *DBPass, *DBAddr, *DBName, "America/New_York")
-	DB, err = sql.Open("postgres", url)
+	DB, err = sql.Open("postgres", "dbname=spgq sslmode=disable TimeZone=America/New_York")
 	if err != nil {
 		panic(err)
 	}
