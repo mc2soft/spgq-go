@@ -26,9 +26,9 @@ type Logger func(format string, v ...interface{})
 // and a earliest next job reservation time (only if error is present).
 type WorkFunc func(job *Job) (reserveAfter *time.Time, err error)
 
-// JobQueue just do jobs from queue
+// JobQueue just do jobs from queue.
 // If WorkFunc returns no error, job is marked as done. Otherwise, depending on a number of job's releases
-// and on MaxReleases field, job is either released or marked as failed.
+// and on Worker.MaxReleases field, job is either released or marked as failed.
 type JobQueue struct {
 	Queue    string   // working queue
 	WorkFunc WorkFunc // work function
