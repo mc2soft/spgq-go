@@ -67,7 +67,9 @@ type Client struct {
 // (thin wrapper for spgq_put_job).
 func (c *Client) Put(queue string, args []byte, reserveAfter *time.Time) (*Job, error) {
 	job := new(Job)
-	q := fmt.Sprintf("SELECT %s FROM spgq_put_job($1, $2, $3)", strings.Join(job.columns(), ", "))
+	q := fmt.Sprintf(`INSERT INTO spgq_jobs (queue, args, status, releases, created_at, updated_at, reserve_after)
+			  VALUES ($1, $2, 'ready', 0, NOW(), NOW(), $3)
+			  RETURNING %s;`, strings.Join(job.columns(), ", "))
 	err := c.Querier.QueryRow(q, queue, args, reserveAfter).Scan(job.pointers()...)
 	if err != nil {
 		return nil, err
@@ -79,7 +81,14 @@ func (c *Client) Put(queue string, args []byte, reserveAfter *time.Time) (*Job, 
 // (thin wrapper for spgq_reserve_job).
 func (c *Client) Reserve(queue string) (*Job, error) {
 	job := new(Job)
-	q := fmt.Sprintf("SELECT %s FROM spgq_reserve_job($1, $2)", strings.Join(job.columns(), ", "))
+	q := fmt.Sprintf(`UPDATE spgq_jobs SET status = 'reserved', last_reserved_by = $2, updated_at = NOW()
+			  WHERE id IN (
+					SELECT id FROM spgq_jobs
+					WHERE queue = $1 AND status = 'ready' AND (reserve_after IS NULL OR reserve_after < NOW())
+					ORDER BY updated_at ASC
+					LIMIT 1
+					FOR UPDATE SKIP LOCKED
+		          ) RETURNING %s;`, strings.Join(job.columns(), ", "))
 	err := c.Querier.QueryRow(q, queue, c.ID).Scan(job.pointers()...)
 	if err != nil {
 		return nil, err
@@ -91,7 +100,14 @@ func (c *Client) Reserve(queue string) (*Job, error) {
 // (thin wrapper for spgq_release_job).
 func (c *Client) Release(id int64, error string, reserveAfter *time.Time) (*Job, error) {
 	job := new(Job)
-	q := fmt.Sprintf("SELECT %s FROM spgq_release_job($1, $2, $3)", strings.Join(job.columns(), ", "))
+	q := fmt.Sprintf(`UPDATE spgq_jobs
+			  SET status = 'ready',
+	                  releases = releases + 1,
+		          last_error = $2,
+			  reserve_after = $3,
+			  updated_at = NOW()
+			  WHERE id = $1 AND status = 'reserved'
+			  RETURNING %s;`, strings.Join(job.columns(), ", "))
 	err := c.Querier.QueryRow(q, id, error, reserveAfter).Scan(job.pointers()...)
 	if err != nil {
 		return nil, err
@@ -103,7 +119,11 @@ func (c *Client) Release(id int64, error string, reserveAfter *time.Time) (*Job,
 // (thin wrapper for spgq_done_job).
 func (c *Client) Done(id int64) (*Job, error) {
 	job := new(Job)
-	q := fmt.Sprintf("SELECT %s FROM spgq_done_job($1)", strings.Join(job.columns(), ", "))
+	q := fmt.Sprintf(`UPDATE spgq_jobs
+			  SET status = 'done',
+	                  updated_at = NOW()
+		          WHERE id = $1 AND status = 'reserved'
+			  RETURNING %s;`, strings.Join(job.columns(), ", "))
 	err := c.Querier.QueryRow(q, id).Scan(job.pointers()...)
 	if err != nil {
 		return nil, err
@@ -115,7 +135,12 @@ func (c *Client) Done(id int64) (*Job, error) {
 // (thin wrapper for spgq_fail_job).
 func (c *Client) Fail(id int64, error string) (*Job, error) {
 	job := new(Job)
-	q := fmt.Sprintf("SELECT %s FROM spgq_fail_job($1, $2)", strings.Join(job.columns(), ", "))
+	q := fmt.Sprintf(`UPDATE spgq_jobs
+			  SET status = 'failed',
+			  last_error = $2,
+		          updated_at = NOW()
+			  WHERE id = $1 AND status = 'reserved'
+			  RETURNING %s;`, strings.Join(job.columns(), ", "))
 	err := c.Querier.QueryRow(q, id, error).Scan(job.pointers()...)
 	if err != nil {
 		return nil, err
